@@ -41,7 +41,7 @@ Version 1 predicts wave height only; period and direction come later.
 - Satellite QC: drop altimeter points within 15 km of land and points with bad quality flags.
 
 Baselines:
-1. Climatology (mean for that month and location)
+1. Climatology (mean for that month and location, from train-pool observations in training years only)
 2. Distance-weighted interpolation of nearby observations
 3. Same model without observation inputs (wind only)
 4. Referee: Copernicus Mediterranean wave reanalysis, at test points and as a full map

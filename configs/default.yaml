@@ -1,0 +1,74 @@
+# medwaves: the one config. Loaded and validated by medwaves/config.py (unknown keys are an error).
+
+seed: 1234
+
+paths:
+  # Overridden by $MEDWAVES_DATA_ROOT, then by --data-root on the command line.
+  # Derived under it: raw/, interim/, processed/, splits/, checkpoints/, reports/
+  # processed/ holds a few large files (one per data kind per year, e.g. 2019.nc), never many
+  # small ones (no zarr directories): Drive is slow with many files and the notebook copies
+  # processed/ to local disk at session start.
+  data_root: /content/drive/MyDrive/medwaves
+  # Fast local copy of processed/ to read from (set by the notebook via $MEDWAVES_LOCAL_ROOT).
+  # null: read processed/ straight from data_root, as on the laptop.
+  local_root: null
+
+years: [2019, 2020, 2021, 2022, 2023, 2024]
+
+pilot:                        # Stage 1 starts with one year and one altimeter mission
+  enabled: true
+  year: 2019
+  mission: sentinel-3a        # must be a train mission, never the held-out one
+  local_sample_days: 3        # laptop tests use only a few days
+
+time:
+  step_hours: 3
+  wind_history_hours: 24
+  obs_history_hours: 24       # how far back observations are fed as inputs
+
+splits:
+  # Half-open [start, end) date ranges. Where two splits touch, the first gap_days of the
+  # later split are dropped, giving a one-week gap at each boundary.
+  gap_days: 7
+  train: {start: 2019-01-01, end: 2023-01-01}
+  val:   {start: 2023-01-01, end: 2024-01-01}
+  test:  {start: 2024-01-01, end: 2025-01-01}
+  space:
+    heldout_buoy_fraction: 0.22
+    # Committed list of train-pool and held-out buoy IDs (relative to the repo root). Stage 1
+    # draws it once and writes it to DATA_ROOT/splits/; you copy it here and commit it.
+    # Never regenerated silently: if this file is missing, every buoy is refused.
+    heldout_buoys_file: configs/heldout_buoys.yaml
+    # Mission labels. Their Copernicus dataset IDs and 2019-2024 coverage are looked up and
+    # verified in stage 1 (products.altimeter_l3). Sentinel-3B has flown since 2018, so it
+    # covers all of 2019-2024, and it is not the pilot mission.
+    heldout_mission: sentinel-3b
+    train_missions: [sentinel-3a]   # more added in stage 1 once verified; unlisted missions are refused
+  masking_fraction: 0.25      # share of input observations hidden and used as targets per step
+
+qc:
+  altimeter_min_coast_km: 15
+  altimeter_good_flags: null  # taken from the product documentation in stage 1
+
+mesh:
+  source: wavegraph           # "wavegraph" if released, otherwise "build"
+  resolution_km: 60
+  obs_k_nearest: 3
+
+# Product and dataset IDs are never guessed: they stay null until looked up and verified
+# in stage 1. Stages refuse to use a product with verified: false.
+products:
+  insitu_buoys:    {product_id: null, dataset_id: null, verified: false}
+  altimeter_l3:    {product_id: null, dataset_id: null, verified: false}
+  wave_reanalysis: {product_id: null, dataset_id: null, verified: false, role: referee_only}
+  era5:            {dataset: null, variables: [u10, v10], verified: false}
+
+model:
+  latent: 64
+  message_passing_steps: 7
+
+train:
+  batch_size: null
+  lr: 1.0e-3
+  epochs: null
+  checkpoint_every_epoch: true
