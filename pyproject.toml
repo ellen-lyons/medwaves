@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "medwaves"
+version = "0.0.1"
+description = "Observation-only GNN for Mediterranean significant wave height"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "pandas",
+    "scipy",
+    "xarray",
+    "netCDF4",
+    "pyyaml",
+    # Lower bounds only, so Colab keeps its preinstalled CUDA torch.
+    # Locally, install the CPU wheel first: see requirements-local.txt.
+    "torch>=2.3",
+    "torch_geometric>=2.5",
+    "copernicusmarine",
+    "cdsapi",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "nbformat"]
+
+[project.scripts]
+medwaves-data = "medwaves.cli:data"
+medwaves-baselines = "medwaves.cli:baselines"
+medwaves-train = "medwaves.cli:train"
+medwaves-eval = "medwaves.cli:evaluate"
+medwaves-check-splits = "medwaves.cli:check_splits"
+
+[tool.setuptools.packages.find]
+include = ["medwaves*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

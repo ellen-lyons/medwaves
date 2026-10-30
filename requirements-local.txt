@@ -1,0 +1,7 @@
+# Local (laptop, no GPU) install: CPU-only torch, then the package with dev extras.
+#   python3 -m venv .venv && .venv/bin/pip install -r requirements-local.txt
+# On Colab use `pip install -e .` instead, which keeps the preinstalled CUDA torch.
+--index-url https://download.pytorch.org/whl/cpu
+--extra-index-url https://pypi.org/simple
+torch
+-e .[dev]
