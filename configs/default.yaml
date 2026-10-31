@@ -21,6 +21,12 @@ pilot:                        # Stage 1 starts with one year and one altimeter m
   mission: sentinel-3a        # must be a train mission, never the held-out one
   local_sample_days: 3        # laptop tests use only a few days
 
+domain:                       # Mediterranean bounding box for all downloads (degrees)
+  lon_min: -6.0
+  lon_max: 36.5
+  lat_min: 30.0
+  lat_max: 46.0
+
 time:
   step_hours: 3
   wind_history_hours: 24
@@ -55,13 +61,52 @@ mesh:
   resolution_km: 60
   obs_k_nearest: 3
 
-# Product and dataset IDs are never guessed: they stay null until looked up and verified
-# in stage 1. Stages refuse to use a product with verified: false.
+# Product and dataset IDs are never guessed. These were checked on 2026-10-31 against the
+# Copernicus Marine catalogue (`copernicusmarine describe`); start/end are the catalogue's
+# time coverage. Stages refuse to use a product with verified: false.
 products:
-  insitu_buoys:    {product_id: null, dataset_id: null, verified: false}
-  altimeter_l3:    {product_id: null, dataset_id: null, verified: false}
-  wave_reanalysis: {product_id: null, dataset_id: null, verified: false, role: referee_only}
-  era5:            {dataset: null, variables: [u10, v10], verified: false}
+  # Global delayed-mode wave buoys, subset to `domain`. Chosen over the Med in-situ product
+  # (INSITU_MED_PHYBGCWAV_DISCRETE_MYNRT_013_035), whose subsettable data starts only in 2020.
+  insitu_buoys:
+    product_id: INSITU_GLO_WAV_DISCRETE_MY_013_045
+    dataset_id: cmems_obs-ins_glo_wav_my_na_PT1H
+    variables: [VHM0]
+    start: 1970-04-27
+    end: 2025-06-30
+    verified: true
+  # Altimetry for 2019-2023 (ends 2023-12-31). One merged multi-mission dataset (ESA CCI based).
+  # Not verified yet: how to tell missions apart inside it (needed for the held-out mission)
+  # must be checked with a login, and which swh variable to use chosen.
+  altimeter_l3_my:
+    product_id: WAVE_GLO_PHY_SWH_L3_MY_014_005
+    dataset_id: cci_obs-wave_glo_phy-swh_my_l3_PT1S-i
+    variables: [swh, swh_adjusted, swh_denoised, swh_uncertainty, distance_to_coast]
+    start: 1991-08-03
+    end: 2023-12-31
+    verified: false
+  # Altimetry for 2024 (the test year): near-real-time, one dataset per mission. Processed
+  # differently from the multi-year product, so 2024 also tests a change in calibration.
+  altimeter_l3_nrt:
+    product_id: WAVE_GLO_PHY_SWH_L3_NRT_014_001
+    datasets:
+      sentinel-3a: cmems_obs-wave_glo_phy-swh_nrt_s3a-l3_PT1S
+      sentinel-3b: cmems_obs-wave_glo_phy-swh_nrt_s3b-l3_PT1S
+    variables: [VAVH]
+    start: 2023-12-27
+    end: null
+    verified: true
+  wave_reanalysis:                # referee only: never an input or target
+    product_id: MEDSEA_MULTIYEAR_WAV_006_012
+    dataset_id: cmems_mod_med_wav_my_4.2km_PT1H-i
+    variables: [VHM0]
+    start: 1985-01-01
+    end: 2026-09-30
+    verified: true
+    role: referee_only
+  era5:                           # Climate Data Store, via cdsapi
+    dataset: reanalysis-era5-single-levels
+    variables: [10m_u_component_of_wind, 10m_v_component_of_wind]
+    verified: true
 
 model:
   latent: 64

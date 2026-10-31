@@ -22,7 +22,7 @@ ECMWF's GraphDOP showed the idea works for weather.
 
 | Part | Choice |
 |---|---|
-| Data | Copernicus Marine Med in-situ buoys, Copernicus L3 altimeter wave height, ERA5 10 m winds, 2019–2024 |
+| Data | Copernicus Marine in-situ wave buoys (global delayed-mode product, Med subset), Copernicus L3 altimeter wave height (multi-year to 2023, near-real-time for 2024), ERA5 10 m winds, 2019–2024 |
 | Time step | 3-hourly |
 | Graph | WaveGraph's ~60 km Mediterranean mesh if released; otherwise build an equivalent sea-only mesh |
 | Node inputs | Last 24 h of wind, bathymetry, distance to coast. NO absolute coordinates |

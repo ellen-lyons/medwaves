@@ -89,4 +89,23 @@ def test_local_root_from_env(raw_config, monkeypatch):
 def test_unverified_product_refused(raw_config):
     cfg = config_from_dict(raw_config)
     with pytest.raises(ConfigError, match="not verified"):
-        cfg.require_verified("insitu_buoys")
+        cfg.require_verified("altimeter_l3_my")
+
+
+def test_verified_product_returned(raw_config):
+    cfg = config_from_dict(raw_config)
+    nrt = cfg.require_verified("altimeter_l3_nrt")
+    assert set(nrt.datasets) == {"sentinel-3a", "sentinel-3b"}
+    assert nrt.end is None
+
+
+def test_verified_product_needs_a_dataset_id(raw_config):
+    raw_config["products"]["insitu_buoys"]["dataset_id"] = None
+    with pytest.raises(ConfigError, match="no dataset ID"):
+        config_from_dict(raw_config)
+
+
+def test_configured_missions_have_nrt_datasets(raw_config):
+    cfg = config_from_dict(raw_config)
+    missions = {cfg.splits.space.heldout_mission, *cfg.splits.space.train_missions}
+    assert missions <= set(cfg.products["altimeter_l3_nrt"].datasets)

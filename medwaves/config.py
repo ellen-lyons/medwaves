@@ -7,7 +7,7 @@ import os
 import random
 import types
 import typing
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
@@ -116,12 +116,23 @@ class Mesh:
 
 
 @dataclass(frozen=True)
+class Domain:
+    lon_min: float
+    lon_max: float
+    lat_min: float
+    lat_max: float
+
+
+@dataclass(frozen=True)
 class Product:
     verified: bool = False
     product_id: str | None = None
     dataset_id: str | None = None
-    dataset: str | None = None
+    datasets: dict[str, str] = field(default_factory=dict)   # mission label -> dataset ID
+    dataset: str | None = None                               # CDS dataset name
     variables: tuple[str, ...] = ()
+    start: dt.date | None = None                             # catalogue time coverage
+    end: dt.date | None = None                               # null: still running
     role: str = "observation"
 
 
@@ -145,6 +156,7 @@ class Config:
     paths: Paths
     years: tuple[int, ...]
     pilot: Pilot
+    domain: Domain
     time: Time
     splits: Splits
     qc: QC
@@ -249,6 +261,13 @@ def _validate(cfg: Config) -> None:
     for name, product in cfg.products.items():
         if name != "wave_reanalysis" and product.role != "observation":
             raise ConfigError(f"products.{name}.role must be observation")
+        if product.verified and not (product.dataset_id or product.datasets or product.dataset):
+            raise ConfigError(f"products.{name} is marked verified but has no dataset ID")
+        if product.start and product.end and product.start > product.end:
+            raise ConfigError(f"products.{name}: start is after end")
+    d = cfg.domain
+    if not (d.lon_min < d.lon_max and d.lat_min < d.lat_max):
+        raise ConfigError("domain: min must be below max")
     if cfg.pilot.year not in cfg.years:
         raise ConfigError("pilot.year must be one of years")
     if cfg.time.step_hours <= 0 or 24 % cfg.time.step_hours:
