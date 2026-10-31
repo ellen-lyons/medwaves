@@ -41,9 +41,9 @@ def space():
 
 def test_windows_match_brief(time_split):
     w = time_split.windows
-    assert (w["train"].start, w["train"].end) == (dt.datetime(2019, 1, 1), dt.datetime(2023, 1, 1))
-    assert (w["val"].start, w["val"].end) == (dt.datetime(2023, 1, 8), dt.datetime(2024, 1, 1))
-    assert (w["test"].start, w["test"].end) == (dt.datetime(2024, 1, 8), dt.datetime(2025, 1, 1))
+    assert (w["train"].start, w["train"].end) == (dt.datetime(2019, 1, 1), dt.datetime(2022, 1, 1))
+    assert (w["val"].start, w["val"].end) == (dt.datetime(2022, 1, 8), dt.datetime(2023, 1, 1))
+    assert (w["test"].start, w["test"].end) == (dt.datetime(2023, 1, 8), dt.datetime(2024, 1, 1))
 
 
 def test_windows_disjoint_with_gap(time_split, raw_config):
@@ -55,10 +55,11 @@ def test_windows_disjoint_with_gap(time_split, raw_config):
 
 def test_which(time_split):
     assert time_split.which(dt.datetime(2020, 6, 1)) == "train"
+    assert time_split.which(dt.datetime(2022, 1, 3)) == "gap"
+    assert time_split.which(dt.datetime(2022, 6, 1)) == "val"
     assert time_split.which(dt.datetime(2023, 1, 3)) == "gap"
-    assert time_split.which(dt.datetime(2023, 6, 1)) == "val"
-    assert time_split.which(dt.datetime(2024, 12, 31, 21)) == "test"
-    assert time_split.which(dt.datetime(2025, 1, 1)) == "gap"
+    assert time_split.which(dt.datetime(2023, 12, 31, 21)) == "test"
+    assert time_split.which(dt.datetime(2024, 1, 1)) == "gap"
 
 
 def test_sample_history_must_stay_inside_split(time_split):
@@ -66,13 +67,13 @@ def test_sample_history_must_stay_inside_split(time_split):
     assert not time_split.sample_ok(start, "val")                    # history reaches into the gap
     assert not time_split.sample_ok(start + dt.timedelta(hours=21), "val")
     assert time_split.sample_ok(start + dt.timedelta(hours=24), "val")
-    assert not time_split.sample_ok(dt.datetime(2023, 6, 1), "train")
+    assert not time_split.sample_ok(dt.datetime(2022, 6, 1), "train")
 
 
 def test_no_valid_sample_has_history_in_another_split(time_split):
     t = dt.datetime(2019, 1, 1)
     step = dt.timedelta(hours=3)
-    while t < dt.datetime(2025, 1, 1):
+    while t < dt.datetime(2024, 1, 1):
         for name in SPLIT_NAMES:
             if time_split.sample_ok(t, name):
                 assert time_split.which(t - time_split.wind_history) == name
@@ -89,7 +90,7 @@ def test_observation_lookback_is_checked_on_its_own(raw_config):
 
 
 def test_obs_input_must_be_inside_lookback_and_split(time_split):
-    t = dt.datetime(2023, 6, 1, 12)
+    t = dt.datetime(2022, 6, 1, 12)
     assert time_split.obs_input_ok(t - dt.timedelta(hours=6), t, "val")
     assert not time_split.obs_input_ok(t - dt.timedelta(hours=30), t, "val")   # too old
     assert not time_split.obs_input_ok(t + dt.timedelta(hours=3), t, "val")    # from the future

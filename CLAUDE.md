@@ -22,10 +22,10 @@ ECMWF's GraphDOP showed the idea works for weather.
 
 | Part | Choice |
 |---|---|
-| Data | Copernicus Marine in-situ wave buoys (global delayed-mode product, Med subset), Copernicus L3 altimeter wave height (multi-year to 2023, near-real-time for 2024), ERA5 10 m winds, 2019–2024 |
+| Data | Copernicus Marine in-situ wave buoys (global delayed-mode product, Med subset), Copernicus L3 altimeter wave height (multi-year product, `swh_adjusted`, all years), ERA5 10 m winds, 2019–2023 |
 | Time step | 3-hourly |
-| Graph | WaveGraph's ~60 km Mediterranean mesh if released; otherwise build an equivalent sea-only mesh |
-| Node inputs | Last 24 h of wind, bathymetry, distance to coast. NO absolute coordinates |
+| Graph | WaveGraph's ~60 km uniform Mediterranean mesh (released on Zenodo, record 21526759) |
+| Node inputs | Last 24 h of wind, bathymetry, distance to coast, directional fetch. NO absolute coordinates |
 | Observation inputs | Recent buoy and satellite values, tagged with age and type, linked to the 3 nearest nodes |
 | Model | Small Interaction Network: latent size 64, 6–8 message-passing steps |
 | Output | Wave height, read out only where an observation exists (no full field needed for training) |
@@ -34,11 +34,15 @@ Version 1 predicts wave height only; period and direction come later.
 
 ## Evaluation (must be honest; leakage is the main thing to avoid)
 
-- Time split: train 2019–2022, validate 2023, test 2024, with a one-week gap at each boundary.
+- Time split: train 2019–2021, validate 2022, test 2023, with a one-week gap at each boundary. The test
+  year is 2023 so that all altimetry comes from one product (the multi-year L3 ends in 2023; the 2024
+  near-real-time product is processed and calibrated differently).
 - Space split: about 20–25% of buoys and one whole satellite mission are held out. They are never used
   in training, not even as inputs.
 - Masking in training: at each step, 25% of observations are hidden from the input and used as targets.
 - Satellite QC: drop altimeter points within 15 km of land and points with bad quality flags.
+- Buoy split: held-out buoys are drawn as whole clusters (buoys within 30 km of each other), stratified
+  by sub-basin, only from buoys with test-year data.
 
 Baselines:
 1. Climatology (mean for that month and location, from train-pool observations in training years only)
@@ -50,7 +54,7 @@ Metrics: RMSE, bias, scatter index, correlation. Report overall and for the top 
 separately for held-out buoys and held-out satellite passes. All models and baselines use one shared
 evaluation module.
 
-Success: minimum = beat all three baselines on held-out buoys in 2024. Good = within reach of the
+Success: minimum = beat all three baselines on held-out buoys in 2023. Good = within reach of the
 reanalysis near buoys, with an explanation of where and why it falls short. The wind-only vs full-model
 gap measures the value of live observations. Failure cases are findings too.
 
@@ -61,6 +65,16 @@ gap measures the value of live observations. Failure cases are findings too.
 2. Baselines and reanalysis comparison, so the bar is known before training.
 3. Model: wind-only version first, then add observation inputs.
 4. Evaluation and write-up: scores, error maps, short report.
+
+## Extensions
+
+Each extension is switchable in the config and scored on the same 2023 test year and the same held-out
+buoys and mission as the base model, so gains are comparable. Never wave- or ocean-model output as
+input or target.
+
+- Directional fetch per mesh node: open-water distance to land in 16 directions (static node feature).
+- Wind history length from config: 24 h default, 48 h as an experiment.
+- Later stage-3 experiments: scatterometer winds as an extra input; a longer training period (before 2019).
 
 ## Environment
 

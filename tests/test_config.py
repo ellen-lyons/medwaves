@@ -55,7 +55,7 @@ def test_reanalysis_must_be_referee_only(raw_config, role):
 
 
 def test_overlapping_splits_rejected(raw_config):
-    raw_config["splits"]["val"]["start"] = "2022-06-01"
+    raw_config["splits"]["val"]["start"] = "2021-06-01"
     with pytest.raises(ConfigError, match="overlaps"):
         config_from_dict(raw_config)
 
@@ -87,6 +87,7 @@ def test_local_root_from_env(raw_config, monkeypatch):
 
 
 def test_unverified_product_refused(raw_config):
+    raw_config["products"]["altimeter_l3_my"]["verified"] = False
     cfg = config_from_dict(raw_config)
     with pytest.raises(ConfigError, match="not verified"):
         cfg.require_verified("altimeter_l3_my")
@@ -94,9 +95,10 @@ def test_unverified_product_refused(raw_config):
 
 def test_verified_product_returned(raw_config):
     cfg = config_from_dict(raw_config)
-    nrt = cfg.require_verified("altimeter_l3_nrt")
-    assert set(nrt.datasets) == {"sentinel-3a", "sentinel-3b"}
-    assert nrt.end is None
+    my = cfg.require_verified("altimeter_l3_my")
+    assert my.swh_variable == "swh_adjusted"
+    assert my.mission_flags["sentinel-3a"] == 5 and my.mission_flags["sentinel-3b"] == 10
+    assert cfg.require_verified("altimeter_l3_nrt").end is None
 
 
 def test_verified_product_needs_a_dataset_id(raw_config):
@@ -105,7 +107,33 @@ def test_verified_product_needs_a_dataset_id(raw_config):
         config_from_dict(raw_config)
 
 
-def test_configured_missions_have_nrt_datasets(raw_config):
+def test_configured_missions_have_flag_codes(raw_config):
     cfg = config_from_dict(raw_config)
     missions = {cfg.splits.space.heldout_mission, *cfg.splits.space.train_missions}
-    assert missions <= set(cfg.products["altimeter_l3_nrt"].datasets)
+    assert missions <= set(cfg.products["altimeter_l3_my"].mission_flags)
+    raw_config["splits"]["space"]["train_missions"] = ["sentinel-3a", "unknown-sat"]
+    with pytest.raises(ConfigError, match="mission_flags"):
+        config_from_dict(raw_config)
+
+
+def test_all_altimetry_from_one_product(raw_config):
+    # The test year must not need the differently calibrated near-real-time altimetry.
+    cfg = config_from_dict(raw_config)
+    assert max(cfg.years) <= cfg.products["altimeter_l3_my"].end.year
+    assert cfg.splits.test.start.year == 2023
+
+
+def test_years_beyond_my_product_need_nrt_datasets(raw_config):
+    raw_config["years"].append(2024)
+    config_from_dict(raw_config)            # NRT has datasets for both configured missions
+    raw_config["products"]["altimeter_l3_nrt"]["datasets"].pop("sentinel-3b")
+    with pytest.raises(ConfigError, match="NRT"):
+        config_from_dict(raw_config)
+
+
+def test_wind_history_must_be_whole_steps(raw_config):
+    raw_config["time"]["wind_history_hours"] = 48
+    assert config_from_dict(raw_config).time.wind_history_hours == 48
+    raw_config["time"]["wind_history_hours"] = 25
+    with pytest.raises(ConfigError, match="wind_history_hours"):
+        config_from_dict(raw_config)

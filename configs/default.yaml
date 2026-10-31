@@ -13,53 +13,86 @@ paths:
   # null: read processed/ straight from data_root, as on the laptop.
   local_root: null
 
-years: [2019, 2020, 2021, 2022, 2023, 2024]
+years: [2019, 2020, 2021, 2022, 2023]
 
 pilot:                        # Stage 1 starts with one year and one altimeter mission
   enabled: true
   year: 2019
   mission: sentinel-3a        # must be a train mission, never the held-out one
   local_sample_days: 3        # laptop tests use only a few days
+  # The pilot still downloads buoys for all `years`: the held-out buoy draw needs to know which
+  # buoys have test-year data. It processes only `year`, its mission and the held-out mission.
 
 domain:                       # Mediterranean bounding box for all downloads (degrees)
-  lon_min: -6.0
+  # West edge covers the mesh's Gulf of Cadiz nodes (down to -7.89) plus an ERA5 cell of margin.
+  lon_min: -8.5
   lon_max: 36.5
   lat_min: 30.0
   lat_max: 46.0
 
 time:
   step_hours: 3
-  wind_history_hours: 24
+  wind_history_hours: 24      # 24 default; 48 is an experiment (see CLAUDE.md, Extensions)
   obs_history_hours: 24       # how far back observations are fed as inputs
 
 splits:
   # Half-open [start, end) date ranges. Where two splits touch, the first gap_days of the
   # later split are dropped, giving a one-week gap at each boundary.
   gap_days: 7
-  train: {start: 2019-01-01, end: 2023-01-01}
-  val:   {start: 2023-01-01, end: 2024-01-01}
-  test:  {start: 2024-01-01, end: 2025-01-01}
+  # The test year is 2023 so every year's altimetry comes from the multi-year L3 product (it ends
+  # 2023-12-31; the 2024 near-real-time product is processed and calibrated differently).
+  train: {start: 2019-01-01, end: 2022-01-01}
+  val:   {start: 2022-01-01, end: 2023-01-01}
+  test:  {start: 2023-01-01, end: 2024-01-01}
   space:
     heldout_buoy_fraction: 0.22
+    # Buoys closer than this (single-link) form one cluster; whole clusters are held out, so a
+    # held-out buoy never has a training buoy next to it. Draw is stratified by region and only
+    # clusters with at least heldout_min_test_days of test-year data are eligible.
+    buoy_cluster_km: 30
+    heldout_min_test_days: 30
     # Committed list of train-pool and held-out buoy IDs (relative to the repo root). Stage 1
     # draws it once and writes it to DATA_ROOT/splits/; you copy it here and commit it.
     # Never regenerated silently: if this file is missing, every buoy is refused.
     heldout_buoys_file: configs/heldout_buoys.yaml
-    # Mission labels. Their Copernicus dataset IDs and 2019-2024 coverage are looked up and
-    # verified in stage 1 (products.altimeter_l3). Sentinel-3B has flown since 2018, so it
-    # covers all of 2019-2024, and it is not the pilot mission.
+    # Mission labels (keys of products.altimeter_l3_my.mission_flags). Sentinel-3B (from
+    # 2018-05-08) covers all of 2019-2023 with the same SRAL altimeter as the pilot mission
+    # Sentinel-3A, and its tracks lie between Sentinel-3A's.
     heldout_mission: sentinel-3b
     train_missions: [sentinel-3a]   # more added in stage 1 once verified; unlisted missions are refused
   masking_fraction: 0.25      # share of input observations hidden and used as targets per step
 
 qc:
-  altimeter_min_coast_km: 15
-  altimeter_good_flags: null  # taken from the product documentation in stage 1
+  altimeter_min_coast_km: 15  # distance from our ETOPO coastline, same for every mission
+  # The multi-year L3 files hold only points that passed the CCI editing (product manual
+  # CMEMS-WAVE-PUM-014-005); there is no flag variable to filter on.
+  altimeter_good_flags: null
+  altimeter_min_points: 3     # 1 Hz points needed to form one along-track super-observation
+  altimeter_pass_gap_s: 60    # a time gap longer than this starts a new pass
+  swh_min_m: 0.1              # both sources
+  swh_max_m: 20.0
+  # Observations are kept if inside a mesh triangle or within this distance of a node (the mesh's
+  # straight coastal edges cut corners; checked: 31% of sea within 5 km of the coast lies outside
+  # every triangle). Drops the Atlantic beyond the mesh and most of the Black Sea.
+  obs_max_node_km: 30
+  buoy_good_qc_flags: [1, 2]  # Copernicus in-situ QC: 1 good, 2 probably good
+  buoy_max_drift_km: 5        # platforms moving more than this are not fixed buoys: dropped
+  buoy_stuck_hours: 6         # this many identical consecutive hourly values: all dropped
 
 mesh:
-  source: wavegraph           # "wavegraph" if released, otherwise "build"
+  # WaveGraph's ~60 km uniform Mediterranean mesh (Benassi et al. 2026, arXiv 2608.16449), released
+  # on Zenodo record 21526759 under CC-BY-4.0: gmsh 2.2 ASCII, 1789 nodes, 3031 triangles.
+  source: wavegraph
+  url: https://zenodo.org/api/records/21526760/files/mediterranean_60km_gu.msh/content
+  md5: 7050413243f4fb26dbddc50879c0f7a1
   resolution_km: 60
   obs_k_nearest: 3
+  fetch_directions: 16        # directional fetch: open-water distance to land per direction
+  fetch_max_km: 2000          # cap; rays leaving the bathymetry grid also count as the cap
+  fetch_step_km: 2
+
+features:                     # switchable extensions (CLAUDE.md, Extensions)
+  directional_fetch: true     # stage 1 always computes fetch; this decides if the model uses it
 
 # Product and dataset IDs are never guessed. These were checked on 2026-10-31 against the
 # Copernicus Marine catalogue (`copernicusmarine describe`); start/end are the catalogue's
@@ -74,27 +107,48 @@ products:
     start: 1970-04-27
     end: 2025-06-30
     verified: true
-  # Altimetry for 2019-2023 (ends 2023-12-31). One merged multi-mission dataset (ESA CCI based).
-  # Not verified yet: how to tell missions apart inside it (needed for the held-out mission)
-  # must be checked with a login, and which swh variable to use chosen.
+  # Altimetry for all years (ends 2023-12-31): ESA CCI Sea State L3 V4, daily global files
+  # ESACCI-SEASTATE-L3-SWH-MULTI_1D-YYYYMMDD-fv01.nc merging all missions. Each point's mission is
+  # the `satellite` flag (codes below, from the file header in the product manual). `satellite` is
+  # not served by the subsettable (ARCO) service, so files are fetched whole with
+  # `copernicusmarine get`, cropped to `domain` and the configured missions, then deleted.
+  # swh_adjusted: cross-mission bias corrected, not denoised. Mission coverage (manual, table 3):
+  # cryosat-2 2010-07-16, saral 2013-03-14, jason-3 2016-02-17, sentinel-3a 2016-07-01,
+  # sentinel-3b 2018-05-08, sentinel-6a 2020-12-17; all to 2023-12-31.
   altimeter_l3_my:
     product_id: WAVE_GLO_PHY_SWH_L3_MY_014_005
     dataset_id: cci_obs-wave_glo_phy-swh_my_l3_PT1S-i
-    variables: [swh, swh_adjusted, swh_denoised, swh_uncertainty, distance_to_coast]
+    variables: [swh_adjusted, swh_uncertainty, distance_to_coast, satellite]
+    swh_variable: swh_adjusted
+    mission_flags:
+      cryosat-2: 0
+      jason-3: 3
+      saral: 4
+      sentinel-3a: 5
+      sentinel-3b: 10
+      sentinel-6a: 11
     start: 1991-08-03
     end: 2023-12-31
-    verified: false
-  # Altimetry for 2024 (the test year): near-real-time, one dataset per mission. Processed
-  # differently from the multi-year product, so 2024 also tests a change in calibration.
+    verified: true
+  # Near-real-time altimetry, one dataset per mission, from 2023-12-27. NOT used while the test
+  # year is 2023 (processed and calibrated differently from the multi-year product); kept for a
+  # possible later 2024 test.
   altimeter_l3_nrt:
     product_id: WAVE_GLO_PHY_SWH_L3_NRT_014_001
     datasets:
+      cryosat-2: cmems_obs-wave_glo_phy-swh_nrt_c2-l3_PT1S
+      jason-3: cmems_obs-wave_glo_phy-swh_nrt_j3-l3_PT1S
+      saral: cmems_obs-wave_glo_phy-swh_nrt_al-l3_PT1S
       sentinel-3a: cmems_obs-wave_glo_phy-swh_nrt_s3a-l3_PT1S
       sentinel-3b: cmems_obs-wave_glo_phy-swh_nrt_s3b-l3_PT1S
     variables: [VAVH]
+    swh_variable: VAVH
     start: 2023-12-27
     end: null
     verified: true
+  # Buoy rows come back from `copernicusmarine subset` in the toolbox's sparse format (columns
+  # platform_id, platform_type, time, longitude, latitude, depth, value, value_qc, ...; checked
+  # in copernicusmarine 2.5 download_sparse.py; `medwaves-data --probe` prints them).
   wave_reanalysis:                # referee only: never an input or target
     product_id: MEDSEA_MULTIYEAR_WAV_006_012
     dataset_id: cmems_mod_med_wav_my_4.2km_PT1H-i
@@ -103,9 +157,17 @@ products:
     end: 2026-09-30
     verified: true
     role: referee_only
-  era5:                           # Climate Data Store, via cdsapi
+  era5:                           # Climate Data Store, via cdsapi (1940 to present, CDS page)
     dataset: reanalysis-era5-single-levels
     variables: [10m_u_component_of_wind, 10m_v_component_of_wind]
+    start: 1940-01-01
+    verified: true
+  # Bathymetry and land mask for node features, coast distance and fetch: ETOPO1 (1 arc-minute)
+  # from NOAA's ERDDAP, one subset request for `domain`. Observation-based, not model output.
+  bathymetry:
+    dataset: etopo180
+    url: https://coastwatch.pfeg.noaa.gov/erddap/griddap/etopo180.nc
+    variables: [altitude]
     verified: true
 
 model:

@@ -1,4 +1,4 @@
-"""Command-line entry points, one per stage. Stages are not implemented yet."""
+"""Command-line entry points, one per stage. Stages 2-4 are not implemented yet."""
 from __future__ import annotations
 
 import argparse
@@ -7,12 +7,16 @@ import sys
 from medwaves.config import DEFAULT_CONFIG, Config, load_config
 
 
-def _load(description: str, argv: list[str] | None) -> Config:
+def _parser(description: str) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument("--config", default=str(DEFAULT_CONFIG), help="YAML config path")
     parser.add_argument("--data-root", default=None,
                         help="override paths.data_root (also settable via $MEDWAVES_DATA_ROOT)")
-    args = parser.parse_args(argv)
+    return parser
+
+
+def _load(description: str, argv: list[str] | None) -> Config:
+    args = _parser(description).parse_args(argv)
     return load_config(args.config, args.data_root)
 
 
@@ -24,7 +28,34 @@ def _stub(stage: str, description: str, argv: list[str] | None) -> int:
 
 
 def data(argv: list[str] | None = None) -> int:
-    return _stub("data", "Stage 1: download, quality-filter and align observations and winds.", argv)
+    from medwaves.data.pipeline import STEPS, Stage1, probe
+
+    parser = _parser("Stage 1: download, quality-filter and align observations and winds. "
+                     "Re-runnable: every step skips work already done.")
+    parser.add_argument("--only", choices=STEPS, action="append",
+                        help="run only this step (repeatable); default: all, in order")
+    parser.add_argument("--sample-days", type=int, default=None,
+                        help="use only the first N days of each year (laptop tests)")
+    parser.add_argument("--synthetic", action="store_true",
+                        help="generate fake raw data instead of downloading (no network); "
+                             "implies --sample-days pilot.local_sample_days unless given")
+    parser.add_argument("--probe", action="store_true",
+                        help="download one day of each source into raw/probe/ and print its format")
+    parser.add_argument("--offline", action="store_true", help="skip the live catalogue lookup")
+    args = parser.parse_args(argv)
+    cfg = load_config(args.config, args.data_root)
+    print(f"[medwaves-data] data_root: {cfg.paths.data_root}")
+    if args.probe:
+        probe(cfg)
+        return 0
+    sample_days = args.sample_days
+    if args.synthetic:
+        from medwaves.data.synthetic import write_raw
+
+        sample_days = sample_days or cfg.pilot.local_sample_days
+        write_raw(cfg, sample_days)
+    Stage1(cfg, sample_days, live_catalogue=not (args.offline or args.synthetic)).run(args.only or STEPS)
+    return 0
 
 
 def baselines(argv: list[str] | None = None) -> int:

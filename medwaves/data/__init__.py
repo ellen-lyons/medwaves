@@ -1,1 +1,1 @@
-"""Stage 1: data pipeline (not implemented yet)."""
+"""Stage 1: data pipeline (see medwaves.data.pipeline)."""

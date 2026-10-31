@@ -87,6 +87,8 @@ class Interval:
 @dataclass(frozen=True)
 class Space:
     heldout_buoy_fraction: float
+    buoy_cluster_km: float
+    heldout_min_test_days: int
     heldout_buoys_file: str
     heldout_mission: str | None
     train_missions: tuple[str, ...]
@@ -106,13 +108,31 @@ class Splits:
 class QC:
     altimeter_min_coast_km: float
     altimeter_good_flags: tuple[int, ...] | None
+    altimeter_min_points: int
+    altimeter_pass_gap_s: float
+    swh_min_m: float
+    swh_max_m: float
+    obs_max_node_km: float
+    buoy_good_qc_flags: tuple[int, ...]
+    buoy_max_drift_km: float
+    buoy_stuck_hours: int
 
 
 @dataclass(frozen=True)
 class Mesh:
     source: str
+    url: str
+    md5: str
     resolution_km: float
     obs_k_nearest: int
+    fetch_directions: int
+    fetch_max_km: float
+    fetch_step_km: float
+
+
+@dataclass(frozen=True)
+class Features:
+    directional_fetch: bool
 
 
 @dataclass(frozen=True)
@@ -129,8 +149,11 @@ class Product:
     product_id: str | None = None
     dataset_id: str | None = None
     datasets: dict[str, str] = field(default_factory=dict)   # mission label -> dataset ID
-    dataset: str | None = None                               # CDS dataset name
+    dataset: str | None = None                               # CDS / ERDDAP dataset name
+    url: str | None = None
     variables: tuple[str, ...] = ()
+    swh_variable: str | None = None
+    mission_flags: dict[str, int] = field(default_factory=dict)  # mission label -> `satellite` code
     start: dt.date | None = None                             # catalogue time coverage
     end: dt.date | None = None                               # null: still running
     role: str = "observation"
@@ -161,6 +184,7 @@ class Config:
     splits: Splits
     qc: QC
     mesh: Mesh
+    features: Features
     products: dict[str, Product]
     model: Model
     train: Train
@@ -250,6 +274,20 @@ def _validate(cfg: Config) -> None:
             raise ConfigError(f"{key} must be between 0 and 1")
     if s.space.heldout_mission is not None and s.space.heldout_mission in s.space.train_missions:
         raise ConfigError("splits.space.heldout_mission is also listed in train_missions")
+    missions = {*s.space.train_missions, *([s.space.heldout_mission] if s.space.heldout_mission else [])}
+    my = cfg.products.get("altimeter_l3_my")
+    if my is not None:
+        missing = missions - set(my.mission_flags)
+        if missing:
+            raise ConfigError(f"missions {sorted(missing)} have no products.altimeter_l3_my.mission_flags code")
+        if my.end and max(cfg.years) > my.end.year:
+            # Later years would need the near-real-time product, calibrated differently.
+            nrt = cfg.products.get("altimeter_l3_nrt")
+            if nrt is None or missions - set(nrt.datasets):
+                raise ConfigError("years after the multi-year altimeter product need NRT datasets "
+                                  "for every configured mission")
+    if s.space.buoy_cluster_km < 0 or s.space.heldout_min_test_days < 0:
+        raise ConfigError("splits.space.buoy_cluster_km and heldout_min_test_days must be >= 0")
     if cfg.pilot.mission is not None:
         if cfg.pilot.mission == s.space.heldout_mission:
             raise ConfigError("pilot.mission must not be the held-out mission")
@@ -272,6 +310,13 @@ def _validate(cfg: Config) -> None:
         raise ConfigError("pilot.year must be one of years")
     if cfg.time.step_hours <= 0 or 24 % cfg.time.step_hours:
         raise ConfigError("time.step_hours must divide 24")
+    for key in ("wind_history_hours", "obs_history_hours"):
+        if getattr(cfg.time, key) % cfg.time.step_hours:
+            raise ConfigError(f"time.{key} must be a multiple of time.step_hours")
+    if cfg.mesh.source != "wavegraph":
+        raise ConfigError("mesh.source: only 'wavegraph' (the released Zenodo mesh) is supported")
+    if not cfg.qc.swh_min_m < cfg.qc.swh_max_m:
+        raise ConfigError("qc.swh_min_m must be below qc.swh_max_m")
 
 
 def config_from_dict(raw: dict, data_root: str | os.PathLike | None = None) -> Config:
